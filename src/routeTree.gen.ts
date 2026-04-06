@@ -10,8 +10,11 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ClerkRouteRouteImport } from './routes/clerk/route'
+import { Route as PosRouteRouteImport } from './routes/_pos/route'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as PosSaleRouteImport } from './routes/_pos/sale'
+import { Route as PosProductsRouteImport } from './routes/_pos/products'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors404RouteImport } from './routes/(errors)/404'
@@ -45,6 +48,10 @@ const ClerkRouteRoute = ClerkRouteRouteImport.update({
   path: '/clerk',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PosRouteRoute = PosRouteRouteImport.update({
+  id: '/_pos',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
@@ -53,6 +60,16 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const PosSaleRoute = PosSaleRouteImport.update({
+  id: '/sale',
+  path: '/sale',
+  getParentRoute: () => PosRouteRoute,
+} as any)
+const PosProductsRoute = PosProductsRouteImport.update({
+  id: '/products',
+  path: '/products',
+  getParentRoute: () => PosRouteRoute,
 } as any)
 const errors503Route = errors503RouteImport.update({
   id: '/(errors)/503',
@@ -210,6 +227,8 @@ export interface FileRoutesByFullPath {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/products': typeof PosProductsRoute
+  '/sale': typeof PosSaleRoute
   '/': typeof AuthenticatedIndexRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
@@ -238,6 +257,8 @@ export interface FileRoutesByTo {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/products': typeof PosProductsRoute
+  '/sale': typeof PosSaleRoute
   '/': typeof AuthenticatedIndexRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/settings/account': typeof AuthenticatedSettingsAccountRoute
@@ -257,6 +278,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/_pos': typeof PosRouteRouteWithChildren
   '/clerk': typeof ClerkRouteRouteWithChildren
   '/_authenticated/settings': typeof AuthenticatedSettingsRouteRouteWithChildren
   '/clerk/(auth)': typeof ClerkauthRouteRouteWithChildren
@@ -271,6 +293,8 @@ export interface FileRoutesById {
   '/(errors)/404': typeof errors404Route
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
+  '/_pos/products': typeof PosProductsRoute
+  '/_pos/sale': typeof PosSaleRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/settings/account': typeof AuthenticatedSettingsAccountRoute
@@ -302,6 +326,8 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/products'
+    | '/sale'
     | '/'
     | '/errors/$error'
     | '/settings/account'
@@ -330,6 +356,8 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/products'
+    | '/sale'
     | '/'
     | '/errors/$error'
     | '/settings/account'
@@ -348,6 +376,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_authenticated'
+    | '/_pos'
     | '/clerk'
     | '/_authenticated/settings'
     | '/clerk/(auth)'
@@ -362,6 +391,8 @@ export interface FileRouteTypes {
     | '/(errors)/404'
     | '/(errors)/500'
     | '/(errors)/503'
+    | '/_pos/products'
+    | '/_pos/sale'
     | '/_authenticated/'
     | '/_authenticated/errors/$error'
     | '/_authenticated/settings/account'
@@ -381,6 +412,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  PosRouteRoute: typeof PosRouteRouteWithChildren
   ClerkRouteRoute: typeof ClerkRouteRouteWithChildren
   authForgotPasswordRoute: typeof authForgotPasswordRoute
   authOtpRoute: typeof authOtpRoute
@@ -403,6 +435,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClerkRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_pos': {
+      id: '/_pos'
+      path: ''
+      fullPath: ''
+      preLoaderRoute: typeof PosRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated': {
       id: '/_authenticated'
       path: ''
@@ -416,6 +455,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_pos/sale': {
+      id: '/_pos/sale'
+      path: '/sale'
+      fullPath: '/sale'
+      preLoaderRoute: typeof PosSaleRouteImport
+      parentRoute: typeof PosRouteRoute
+    }
+    '/_pos/products': {
+      id: '/_pos/products'
+      path: '/products'
+      fullPath: '/products'
+      preLoaderRoute: typeof PosProductsRouteImport
+      parentRoute: typeof PosRouteRoute
     }
     '/(errors)/503': {
       id: '/(errors)/503'
@@ -657,6 +710,20 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
+interface PosRouteRouteChildren {
+  PosProductsRoute: typeof PosProductsRoute
+  PosSaleRoute: typeof PosSaleRoute
+}
+
+const PosRouteRouteChildren: PosRouteRouteChildren = {
+  PosProductsRoute: PosProductsRoute,
+  PosSaleRoute: PosSaleRoute,
+}
+
+const PosRouteRouteWithChildren = PosRouteRoute._addFileChildren(
+  PosRouteRouteChildren,
+)
+
 interface ClerkauthRouteRouteChildren {
   ClerkauthSignInRoute: typeof ClerkauthSignInRoute
   ClerkauthSignUpRoute: typeof ClerkauthSignUpRoute
@@ -702,6 +769,7 @@ const ClerkRouteRouteWithChildren = ClerkRouteRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  PosRouteRoute: PosRouteRouteWithChildren,
   ClerkRouteRoute: ClerkRouteRouteWithChildren,
   authForgotPasswordRoute: authForgotPasswordRoute,
   authOtpRoute: authOtpRoute,
