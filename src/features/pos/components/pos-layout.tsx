@@ -35,7 +35,7 @@ export function PosLayout() {
   })
 
   return (
-    <div className='flex h-screen flex-col bg-[#f4f5f7]'>
+    <div className='pos-scope flex h-screen flex-col bg-[#f4f5f7] text-[#1a2744]'>
       {/* ===== Top Bar ===== */}
       <header className='flex h-14 shrink-0 items-center justify-between border-b border-[#e2e5ea] bg-white px-6'>
         {/* Left: Store name */}
