@@ -1,13 +1,13 @@
-import { useState } from 'react'
 import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link, useNavigate } from '@tanstack/react-router'
+import { AxiosError } from 'axios'
 import { Loader2, LogIn } from 'lucide-react'
 import { toast } from 'sonner'
-import { IconFacebook, IconGithub } from '@/assets/brand-icons'
 import { useAuthStore } from '@/stores/auth-store'
-import { sleep, cn } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { decodeJwt, useLogin } from '@/features/auth/data/auth-api'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -27,7 +27,7 @@ const formSchema = z.object({
   password: z
     .string()
     .min(1, 'Please enter your password')
-    .min(7, 'Password must be at least 7 characters long'),
+    .min(6, 'Password must be at least 6 characters long'),
 })
 
 interface UserAuthFormProps extends React.HTMLAttributes<HTMLFormElement> {
@@ -39,9 +39,10 @@ export function UserAuthForm({
   redirectTo,
   ...props
 }: UserAuthFormProps) {
-  const [isLoading, setIsLoading] = useState(false)
   const navigate = useNavigate()
   const { auth } = useAuthStore()
+  const loginMutation = useLogin()
+  const isLoading = loginMutation.isPending
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -52,32 +53,34 @@ export function UserAuthForm({
   })
 
   function onSubmit(data: z.infer<typeof formSchema>) {
-    setIsLoading(true)
-
-    toast.promise(sleep(2000), {
+    toast.promise(loginMutation.mutateAsync(data), {
       loading: 'Signing in...',
-      success: () => {
-        setIsLoading(false)
-
-        // Mock successful authentication with expiry computed at success time
-        const mockUser = {
-          accountNo: 'ACC001',
-          email: data.email,
-          role: ['user'],
-          exp: Date.now() + 24 * 60 * 60 * 1000, // 24 hours from now
+      success: ({ access_token }) => {
+        const decoded = decodeJwt(access_token)
+        const user = {
+          accountNo: decoded?.sub ? String(decoded.sub) : 'unknown',
+          email: decoded?.email ?? data.email,
+          role: decoded?.role ? [decoded.role] : ['staff'],
+          exp: decoded?.exp
+            ? decoded.exp * 1000
+            : Date.now() + 24 * 60 * 60 * 1000,
         }
+        auth.setUser(user)
+        auth.setAccessToken(access_token)
 
-        // Set user and access token
-        auth.setUser(mockUser)
-        auth.setAccessToken('mock-access-token')
-
-        // Redirect to the stored location or default to dashboard
         const targetPath = redirectTo || '/'
         navigate({ to: targetPath, replace: true })
 
-        return `Welcome back, ${data.email}!`
+        return `Welcome back, ${user.email}!`
       },
-      error: 'Error',
+      error: (err) => {
+        if (err instanceof AxiosError) {
+          if (err.response?.status === 401) return 'Invalid email or password'
+          if (err.code === 'ERR_NETWORK')
+            return 'Cannot reach server — is the API running?'
+        }
+        return (err as Error)?.message ?? 'Sign-in failed'
+      },
     })
   }
 
@@ -120,30 +123,13 @@ export function UserAuthForm({
             </FormItem>
           )}
         />
-        <Button className='mt-2' disabled={isLoading}>
+        <Button
+          className='mt-2 bg-[#C9A84C] text-white hover:bg-[#b8973e]'
+          disabled={isLoading}
+        >
           {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
           Sign in
         </Button>
-
-        <div className='relative my-2'>
-          <div className='absolute inset-0 flex items-center'>
-            <span className='w-full border-t' />
-          </div>
-          <div className='relative flex justify-center text-xs uppercase'>
-            <span className='bg-background px-2 text-muted-foreground'>
-              Or continue with
-            </span>
-          </div>
-        </div>
-
-        <div className='grid grid-cols-2 gap-2'>
-          <Button variant='outline' type='button' disabled={isLoading}>
-            <IconGithub className='h-4 w-4' /> GitHub
-          </Button>
-          <Button variant='outline' type='button' disabled={isLoading}>
-            <IconFacebook className='h-4 w-4' /> Facebook
-          </Button>
-        </div>
       </form>
     </Form>
   )

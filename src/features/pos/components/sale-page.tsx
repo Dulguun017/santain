@@ -1,6 +1,17 @@
 import { useMemo, useRef, useState } from 'react'
-import { Check, Minus, Plus, Search, Trash2, X } from 'lucide-react'
+import {
+  Banknote,
+  Check,
+  CreditCard,
+  Loader2,
+  Minus,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { toast } from 'sonner'
+import { toNumber } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,9 +33,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { sampleProducts } from '@/features/pos/data/products'
+import { fetchProductByBarcode, useCreateSale } from '@/features/pos/data/api'
 
 type CartItem = {
+  productId: number
   barcode: string
   name: string
   qty: number
@@ -32,11 +44,7 @@ type CartItem = {
   notes: string
 }
 
-type PaymentMethod = {
-  key: 'cash' | 'card' | 'bank' | 'credit'
-  label: string
-  amount: number
-}
+type PayMethod = 'cash' | 'card' | null
 
 const VAT10_RATE = 0.1
 const VAT2_RATE = 0.02
@@ -44,21 +52,17 @@ const VAT2_RATE = 0.02
 const formatCurrency = (n: number) =>
   n.toLocaleString('mn-MN', { maximumFractionDigits: 0 })
 
-const emptyPayments = (): PaymentMethod[] => [
-  { key: 'cash', label: 'Бэлнээр', amount: 0 },
-  { key: 'card', label: 'Картаар', amount: 0 },
-  { key: 'bank', label: 'Дансаар', amount: 0 },
-  { key: 'credit', label: 'Авлагаар', amount: 0 },
-]
-
 export function SalePage() {
   const [barcode, setBarcode] = useState('')
   const [cart, setCart] = useState<CartItem[]>([])
-  const [payments, setPayments] = useState<PaymentMethod[]>(emptyPayments)
+  const [payMethod, setPayMethod] = useState<PayMethod>(null)
   const [mode, setMode] = useState<'demo' | 'production'>('demo')
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [lastReceipt, setLastReceipt] = useState<number | null>(null)
+  const [lookupLoading, setLookupLoading] = useState(false)
+  const [lastReceipt, setLastReceipt] = useState<string | number | null>(null)
   const barcodeRef = useRef<HTMLInputElement>(null)
+
+  const createSale = useCreateSale()
 
   const { totalNet, totalVat10, totalVat2, grandTotal } = useMemo(() => {
     const net = cart.reduce((s, i) => s + i.unitPrice * i.qty, 0)
@@ -72,91 +76,105 @@ export function SalePage() {
     }
   }, [cart])
 
-  const totalPaid = payments.reduce((s, p) => s + p.amount, 0)
-  const change = Math.max(0, totalPaid - grandTotal)
-  const shortfall = Math.max(0, grandTotal - totalPaid)
-  const canPay = cart.length > 0 && totalPaid >= grandTotal
+  const canPay =
+    cart.length > 0 && payMethod !== null && !createSale.isPending
 
-  const addByBarcode = () => {
+  const addByBarcode = async () => {
     const code = barcode.trim()
     if (!code) return
-    const product = sampleProducts.find((p) => p.barcode === code)
-    if (!product) {
-      toast.error(`Баркод олдсонгүй: ${code}`)
-      return
-    }
-    setCart((prev) => {
-      const existing = prev.find((i) => i.barcode === product.barcode)
-      if (existing) {
-        return prev.map((i) =>
-          i.barcode === product.barcode ? { ...i, qty: i.qty + 1 } : i
-        )
+    setLookupLoading(true)
+    try {
+      const product = await fetchProductByBarcode(code)
+      if (!product) {
+        toast.error(`Баркод олдсонгүй: ${code}`)
+        return
       }
-      return [
-        ...prev,
-        {
-          barcode: product.barcode,
-          name: product.name,
-          qty: 1,
-          unitPrice: product.price,
-          notes: '',
-        },
-      ]
-    })
-    setBarcode('')
-    barcodeRef.current?.focus()
+      const price = toNumber(product.price)
+      setCart((prev) => {
+        const existing = prev.find((i) => i.productId === product.id)
+        if (existing) {
+          return prev.map((i) =>
+            i.productId === product.id ? { ...i, qty: i.qty + 1 } : i
+          )
+        }
+        return [
+          ...prev,
+          {
+            productId: product.id,
+            barcode: product.barcode ?? String(product.id),
+            name: product.name,
+            qty: 1,
+            unitPrice: price,
+            notes: '',
+          },
+        ]
+      })
+      setBarcode('')
+    } catch (err) {
+      toast.error(
+        `Сервертэй холбогдож чадсангүй: ${(err as Error)?.message ?? ''}`
+      )
+    } finally {
+      setLookupLoading(false)
+      barcodeRef.current?.focus()
+    }
   }
 
-  const changeQty = (barcode: string, delta: number) => {
+  const changeQty = (productId: number, delta: number) => {
     setCart((prev) =>
       prev
         .map((i) =>
-          i.barcode === barcode ? { ...i, qty: i.qty + delta } : i
+          i.productId === productId ? { ...i, qty: i.qty + delta } : i
         )
         .filter((i) => i.qty > 0)
     )
   }
 
-  const removeItem = (barcode: string) => {
-    setCart((prev) => prev.filter((i) => i.barcode !== barcode))
+  const removeItem = (productId: number) => {
+    setCart((prev) => prev.filter((i) => i.productId !== productId))
   }
 
-  const updateNotes = (barcode: string, notes: string) => {
+  const updateNotes = (productId: number, notes: string) => {
     setCart((prev) =>
-      prev.map((i) => (i.barcode === barcode ? { ...i, notes } : i))
+      prev.map((i) => (i.productId === productId ? { ...i, notes } : i))
     )
   }
-
-  const updatePayment = (key: PaymentMethod['key'], amount: number) => {
-    setPayments((prev) =>
-      prev.map((p) => (p.key === key ? { ...p, amount } : p))
-    )
-  }
-
-  const fillExactCash = () => {
-    setPayments(emptyPayments().map((p) =>
-      p.key === 'cash' ? { ...p, amount: grandTotal } : p
-    ))
-  }
-
-  const clearPayments = () => setPayments(emptyPayments())
 
   const resetSale = () => {
     setCart([])
     setBarcode('')
-    setPayments(emptyPayments())
+    setPayMethod(null)
     barcodeRef.current?.focus()
   }
 
-  const submitPayment = () => {
-    if (!canPay) return
-    const receipt = Math.floor(100000 + Math.random() * 900000)
-    setLastReceipt(receipt)
-    setConfirmOpen(true)
+  const submitPayment = async () => {
+    if (!canPay || !payMethod) return
+
     if (mode === 'demo') {
+      const receipt = Math.floor(100000 + Math.random() * 900000)
+      setLastReceipt(receipt)
+      setConfirmOpen(true)
       toast.success(`Демо горим: баримт #${receipt} үүслээ`)
-    } else {
-      toast.success(`Төлбөр хийгдлээ — баримт #${receipt}`)
+      return
+    }
+
+    try {
+      const sale = await createSale.mutateAsync({
+        paymentMethod: payMethod,
+        items: cart.map((i) => ({
+          productId: i.productId,
+          quantity: i.qty,
+          unitPrice: i.unitPrice,
+        })),
+        note: cart.map((i) => i.notes).filter(Boolean).join(' | ') || undefined,
+      })
+      setLastReceipt(sale.saleNumber ?? sale.id)
+      setConfirmOpen(true)
+      toast.success(`Төлбөр амжилттай — баримт #${sale.saleNumber ?? sale.id}`)
+    } catch (err) {
+      toast.error(
+        `Гүйлгээ хадгалж чадсангүй: ${(err as Error)?.message ?? ''}`
+      )
     }
   }
 
@@ -173,7 +191,7 @@ export function SalePage() {
         <div className='flex items-center gap-3 border-b p-4'>
           <Input
             ref={barcodeRef}
-            placeholder='Баркод оруулах... (2537, 2211, 3012...)'
+            placeholder='Баркод оруулах...'
             value={barcode}
             onChange={(e) => setBarcode(e.target.value)}
             onKeyDown={(e) => {
@@ -184,13 +202,19 @@ export function SalePage() {
             }}
             className='flex-1 text-sm'
             autoFocus
+            disabled={lookupLoading}
           />
           <Button
             size='icon'
             onClick={addByBarcode}
+            disabled={lookupLoading}
             className='shrink-0 bg-[#C9A84C] text-white hover:bg-[#b8973e]'
           >
-            <Search className='h-4 w-4' />
+            {lookupLoading ? (
+              <Loader2 className='h-4 w-4 animate-spin' />
+            ) : (
+              <Search className='h-4 w-4' />
+            )}
           </Button>
           <div className='flex items-center gap-2 rounded-md border border-[#e2e5ea] bg-[#f8f9fb] px-3 py-1.5'>
             <span
@@ -250,7 +274,7 @@ export function SalePage() {
                   const lineVat2 = Math.round(lineNet * VAT2_RATE)
                   const lineTotal = lineNet + lineVat10 + lineVat2
                   return (
-                    <TableRow key={item.barcode}>
+                    <TableRow key={item.productId}>
                       <TableCell className='font-mono text-xs'>
                         {item.barcode}
                       </TableCell>
@@ -261,7 +285,7 @@ export function SalePage() {
                             size='icon'
                             variant='outline'
                             className='h-7 w-7'
-                            onClick={() => changeQty(item.barcode, -1)}
+                            onClick={() => changeQty(item.productId, -1)}
                           >
                             <Minus className='h-3 w-3' />
                           </Button>
@@ -272,7 +296,7 @@ export function SalePage() {
                             size='icon'
                             variant='outline'
                             className='h-7 w-7'
-                            onClick={() => changeQty(item.barcode, 1)}
+                            onClick={() => changeQty(item.productId, 1)}
                           >
                             <Plus className='h-3 w-3' />
                           </Button>
@@ -294,7 +318,7 @@ export function SalePage() {
                         <Input
                           value={item.notes}
                           onChange={(e) =>
-                            updateNotes(item.barcode, e.target.value)
+                            updateNotes(item.productId, e.target.value)
                           }
                           placeholder='...'
                           className='h-8 text-xs'
@@ -305,7 +329,7 @@ export function SalePage() {
                           size='icon'
                           variant='ghost'
                           className='h-7 w-7 text-red-500 hover:bg-red-50 hover:text-red-600'
-                          onClick={() => removeItem(item.barcode)}
+                          onClick={() => removeItem(item.productId)}
                         >
                           <Trash2 className='h-3.5 w-3.5' />
                         </Button>
@@ -346,51 +370,26 @@ export function SalePage() {
 
       {/* ===== Right Panel: Payment ===== */}
       <div className='flex w-80 shrink-0 flex-col gap-4'>
-        {/* Payment methods */}
+        {/* Payment method picker */}
         <div className='rounded-lg border bg-white p-4'>
-          <div className='mb-3 flex items-center justify-between'>
-            <h3 className='text-sm font-semibold text-[#1a2744]'>
-              Төлбөрийн хэлбэр
-            </h3>
-            <button
-              type='button'
-              onClick={clearPayments}
-              className='text-xs text-[#9ba3b0] hover:text-[#5a6577]'
-            >
-              Цэвэрлэх
-            </button>
-          </div>
-          <div className='space-y-2'>
-            {payments.map((p) => (
-              <div key={p.key} className='flex items-center gap-2'>
-                <Label className='w-20 text-sm text-[#5a6577]'>
-                  {p.label}
-                </Label>
-                <Input
-                  type='number'
-                  min={0}
-                  value={p.amount || ''}
-                  onChange={(e) =>
-                    updatePayment(p.key, Math.max(0, Number(e.target.value) || 0))
-                  }
-                  placeholder='0'
-                  className='flex-1 text-right text-sm tabular-nums'
-                />
-                <Button
-                  size='icon'
-                  variant='ghost'
-                  onClick={() =>
-                    p.key === 'cash'
-                      ? fillExactCash()
-                      : updatePayment(p.key, grandTotal - totalPaid + p.amount)
-                  }
-                  title='Үлдэгдэл дүнгээр бөглөх'
-                  className='h-8 w-8 shrink-0 text-[#C9A84C] hover:bg-[#C9A84C]/10'
-                >
-                  <Check className='h-4 w-4' />
-                </Button>
-              </div>
-            ))}
+          <h3 className='mb-3 text-sm font-semibold text-[#1a2744]'>
+            Төлбөрийн хэлбэр
+          </h3>
+          <div className='grid grid-cols-2 gap-2'>
+            <PayMethodButton
+              label='Бэлнээр'
+              icon={<Banknote className='h-5 w-5' />}
+              active={payMethod === 'cash'}
+              disabled={cart.length === 0}
+              onClick={() => setPayMethod('cash')}
+            />
+            <PayMethodButton
+              label='Картаар'
+              icon={<CreditCard className='h-5 w-5' />}
+              active={payMethod === 'card'}
+              disabled={cart.length === 0}
+              onClick={() => setPayMethod('card')}
+            />
           </div>
         </div>
 
@@ -398,7 +397,7 @@ export function SalePage() {
         <div className='space-y-2'>
           <SummaryBox
             label='Төлсөн дүн'
-            value={formatCurrency(totalPaid)}
+            value={formatCurrency(payMethod ? grandTotal : 0)}
             variant='green'
           />
           <SummaryBox
@@ -406,11 +405,13 @@ export function SalePage() {
             value={formatCurrency(grandTotal)}
             variant='red'
           />
-          <SummaryBox
-            label={shortfall > 0 ? 'Дутуу' : 'Хариулт'}
-            value={formatCurrency(shortfall > 0 ? shortfall : change)}
-            variant={shortfall > 0 ? 'red' : 'blue'}
-          />
+          <Label className='block px-1 pt-2 text-xs text-[#9ba3b0]'>
+            {payMethod
+              ? `Төлбөрийн хэлбэр: ${
+                  payMethod === 'cash' ? 'Бэлнээр' : 'Картаар'
+                }`
+              : 'Бэлэн / Карт сонгоно уу'}
+          </Label>
         </div>
 
         {/* Action buttons */}
@@ -418,7 +419,7 @@ export function SalePage() {
           <Button
             variant='outline'
             onClick={resetSale}
-            disabled={cart.length === 0 && totalPaid === 0}
+            disabled={cart.length === 0 && payMethod === null}
             className='flex-1'
           >
             <X className='mr-2 h-4 w-4' />
@@ -434,6 +435,9 @@ export function SalePage() {
                 : 'cursor-not-allowed bg-[#C9A84C]/40'
             )}
           >
+            {createSale.isPending ? (
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+            ) : null}
             {mode === 'demo' ? 'Демо төлөлт' : 'Төлөлт хийх'}
           </Button>
         </div>
@@ -488,9 +492,13 @@ export function SalePage() {
               </span>
             </div>
             <div className='flex justify-between'>
-              <span className='text-[#5a6577]'>Хариулт</span>
+              <span className='text-[#5a6577]'>Төлбөрийн хэлбэр</span>
               <span className='tabular-nums'>
-                {formatCurrency(change)} ₮
+                {payMethod === 'cash'
+                  ? 'Бэлнээр'
+                  : payMethod === 'card'
+                    ? 'Картаар'
+                    : '—'}
               </span>
             </div>
           </div>
@@ -505,6 +513,38 @@ export function SalePage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+function PayMethodButton({
+  label,
+  icon,
+  active,
+  disabled,
+  onClick,
+}: {
+  label: string
+  icon: React.ReactNode
+  active: boolean
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type='button'
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex flex-col items-center justify-center gap-1.5 rounded-lg border px-3 py-4 text-sm font-medium transition-all',
+        active
+          ? 'border-[#C9A84C] bg-[#C9A84C]/10 text-[#C9A84C] shadow-sm'
+          : 'border-[#e2e5ea] bg-white text-[#5a6577] hover:border-[#C9A84C]/40 hover:bg-[#f8f9fb]',
+        disabled && 'cursor-not-allowed opacity-50 hover:border-[#e2e5ea] hover:bg-white'
+      )}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
   )
 }
 
